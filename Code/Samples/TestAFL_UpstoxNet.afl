@@ -1,0 +1,355 @@
+ /*Do not copy this chart section in your AFL*/
+_SECTION_BEGIN("Chart");
+Buy=Sell=Short=Cover=0;
+SetChartOptions(0,chartShowArrows|chartShowDates);
+_N(Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} Open %g, Hi %g, Lo %g, Close %g (%.1f%%) {{VALUES}}", O, H, L, C, SelectedValue( ROC( C, 1 ) ) ));
+Plot( C, "Close", colorDefault , styleNoTitle  | GetPriceStyle() ); 
+_SECTION_END();
+
+/*
+INTRODUCTION:
+Its natural that people always skip long instructions,
+but we highly recommend you to read the below notes and comments carefully else may face issues later.
+UpstoxNet is a advanced library and explaining its all features here is not possible,
+hence covering the most vital points.
+
+UpstoxNet Bridge supports full paper trading, so you can check your strategy performance in real time before going live.
+This paper trading is as good as live trading.
+
+USE OF THIS AFL:
+This AFL can be used to test UpstoxNet Bridge connectivity and place a test order.
+It also includes a generic order placement code.
+
+SETTINGS:
+***Computer Settings***
+Ensure that Your System Time is set to IST and upto Date.
+Ensure that Your System Date Format is dd-MMM-yyyy and Time Format is HH:mm:ss (24Hours).
+Have optimal PC/Laptop configuration,Registered Version of AmiBroker.
+Realtime Data from Authorised Data Vendor.
+Realiable and Fast Internet.
+
+***AmiBroker Settings***
+Go to Menu --> Tools --> Preferences
+Preferences --> Intraday
+Check - Align Minute Bars to Market Hours
+Select - Start time of Interval
+Check - Override: Weekly/Monthly Bars
+Realtime Chart Refresh Interval - 0
+
+Preferences --> Miscellaneous
+Thousand Seperator - Delete (Keep Blank)
+
+INSTALLATIONS:
+Download and install UpstoxNet from
+https://howutrade.in/downloads/upstoxnet
+
+DLL ERRORS:
+COM object handle is null : UpstoxNet is not installed
+Can not load library : Some DLL is missing, try reinstalling. If problem persists,Contact HowUTrade
+
+API DOCUMETATION:
+https://howutrade.in/docs/upstoxnet/bridge/
+
+SIGNAL GUIDELINES:
+Ensure that your AFL contains BUY/SELL/SHORT/COVER signals
+Your AFL doesn't repaint, doesn't produce false signals.
+Your AFL uses Exrem function to remove excess signals.
+
+***If your Buy/Sell/Short/Cover conditions directly or indirectly uses 'C', then***
+your AFL will repaint.
+You need to take position on next candle opening.
+For that add the below code after the **last Buy/Sell/Short/Cover*** declaration but before bridge code.
+Example:
+//Your trading system starts
+Buy = Some Cond;
+Sell = Some Cond;
+Short = Some Cond;
+Cover = Some Cond;
+Buy = Exrem(Buy,Sell);
+Sell = Exrem(Sell,Buy);
+Short = Exrem(Short,Cover);
+Cover = Exrem(Cover, Short);
+//Your system end here
+
+//Code to take position on Next Candle
+Buy = Ref(Buy,-1);
+Sell = Ref(Sell,-1);
+Short = Ref(Short,-1);
+Cover = Ref(Cover,-1);
+
+//Bridge code starts here
+
+***If your Buy/Sell/Short/Cover conditions directly or indirectly uses the below functions***
+Peak, Trough, ZigZag
+then,
+
+Just discard the AFL as it will never work, yes it will never work as we can't decide the future..
+Because this functions uses future bars to generate signals.
+You will never get signals in the last bar.
+
+BRIDGE CODE GUIDELINES: 
+do NOT pass array to any functions of UpstoxNet Bridge. 
+Because all functions takes constant parameter.
+Example : C is array, LastValue(C,1) is constant.
+
+Call the Bridge Functions as required, do NOT place the bridge functions in main body Of the AFL.
+Always use if Condtions AND static variables to Call the bridge functions.
+Example:
+Placing the below code in main body of the AFL, will fire order on every chart refresh 
+Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, Trans, OrdType, Qty, ProdType, LmtPrice, TrgPrice, val, cTag, DiscQty, IsLive, StgyCode);
+
+instead use like below
+if (LastValue(Buy)) {
+Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, Trans, OrdType, Qty, ProdType, LmtPrice, TrgPrice, val, cTag, DiscQty, IsLive, StgyCode);}
+The above bridge code will be called only when Buy Signal comes at last bar.
+
+Another Example, getting the Lot Size only once AND store it in static variable.
+LotSize = Nz(StaticVarGet(TrdSym+"LotSize"));
+if (LotSize==0){
+Bridge = CreateStaticObject("UpstoxNet.Bridge");
+LotSize = Bridge.GetLotSize(Exch,TrdSym);
+StaticVarSet(TrdSym+"LotSize",LotSize);}
+
+AFL SCANNER VS CHART TRADING:
+When to use Scanner and Chart?
+It all depends on the Trading system, your code execution time and number of symbols you want to track.
+
+***If you want to track limited symbols, say upto 20 then***
+open chart for each symbol
+Drag & Drop the system AFL on each chart (Important,Only Drag & Drop, NOT Load Default chart, else parameter settings will be shared across all charts)
+Adjust parameters on each chart (TrdSym etc)
+Tile all the Charts.
+Save Layout (Important else you need to do all the above steps everytime)
+
+***If you want to track unlimited symbols, say 200 then***
+use scanner, because opening that much chart is not practical.
+
+Which is fast?
+Chart is fast, because chart is refreshed simultaneously and uses multithreading.So 1st and last symbol will get signal in same time.
+In scanner, symbol is scanned one by one.
+
+MISC:
+Below order placement code is a generic code AND there is no standard code to fit all AFL at once.
+Because each AFL is unique AND their Signal generation will differ AFL to AFL.
+Some AFL may have Buy & Short alternate Signal, some have Buy & Sell alternate, some may be LONG only, some Short only.
+Below sample code will fit 90% of the time, but still require 10% modifcation as per the trading system.
+It is the responsibilty of the AFL coder to ensure that 
+* the Bridge code is correctly fit with the trading system.
+* Bridge Functions are handled correctly as required.
+The below code places  simpleorder, but UpstoxNet supports complex orders also.
+
+Adjust your parameters before market and trading starts, do not attempt to change any parameter after
+the market and trading started else system will collapse. People are having habit of changing the parameter in run time.
+Example:
+Say You have set 50 period in MA system and got Buy Signal and order fired,
+now you changed the period 50 to 100, now AmiBroker will workout new buy signal.
+So your earlier buy signal is vanished. This is very serious issue if you do live trading.
+
+Do not change Live --> Paper Trade or Paper Trade --> Live while trading system is running.
+Example:
+You started with Live and got a BUY signal, real order is placed, now you switched to paper trade, if
+sell signal is generated, it will be logged, so you have open long position.
+
+
+Don't expect us to teach you AmiBroker/AFL Coding. If you are a beginner, a lot of resources are available in internet,
+you can learn from there.
+
+We will only give general guidelines on how to use specific functions and its purpose.
+
+AmiBroker is advanced charting software, it requires lot of efforts to get started.
+It may take months to years to know the ***basic things*** only.
+Be cool and start learn things.
+Initially, you will get lot of errors, failures.
+Try to find out the cause,rectify and start again.
+
+Do not go Live immediately.
+Test your system in Paper Trade for atleast 15 days.
+This will enable you to assess your system performance,
+check order placement or 
+check errors in trading system/AFL.
+
+***Do not lose your hard earned money by trading without completely testing the system***
+
+Backtest/Paper Trade result will ***never match*** in realtime trades.
+Slippages, Brokerages, Charges and API Errors/Issues may turn your positive result to ***negative***.
+Do not get excited with backtest/Paper Trade results.
+
+Happy Trading..! 
+*/
+
+_SECTION_BEGIN("Test Bridge");
+TestConnection = ParamTrigger("Test Connection","PRESS");
+if (TestConnection) {
+Bridge = CreateStaticObject("UpstoxNet.Bridge");
+BridgeStatus = Bridge.TestConnection();
+if (BridgeStatus) {
+PopupWindow("Hey Buddy..! I'm waiting..!","Test Connection");
+} else {
+PopupWindow("UserNotoggedIn Or Invalid User","Test Connection");}}
+
+GetClientId = ParamTrigger("Get ClientId","PRESS");
+if (GetClientId) {
+Bridge = CreateStaticObject("UpstoxNet.Bridge");
+ClientId = Bridge.GetConnectedClient();
+PopupWindow("ClientId: " + ClientId,"Get ClientId");}
+_SECTION_END();
+
+TestOrder = ParamTrigger("Test Order","PRESS");
+if (TestOrder) {
+Bridge = CreateStaticObject("UpstoxNet.Bridge");
+Bridge.ResetSimpleOrderSignals("NSE_EQ", "ACC", "ZZ");
+OrderId = Bridge.PlaceSimpleOrderBridge("NSE_EQ", "ACC", "BUY", "L", 1, "I", 10.55, 0,"DAY", "LONG", 0, True, "ZZ");
+PopupWindow("OrderId: " + OrderId,"Test Order");}
+_SECTION_END();
+
+_SECTION_BEGIN("Order Placement");
+DayO = TimeFrameGetPrice( "O", inDaily, 0 ); 
+Exch = ParamList("Exchange","NSE_EQ|NSE_FO|MCX_FO",0);
+TrdSym = ParamStr("Trade Symbol","AXISBANK"); /*This should exactly match with Market Watch*/
+NoOfLots = Param("No of Lots to Trade (FUT)",1,1,500,1); /*Just put no of lots to trade. NOT lotsize*/ 
+TradeValue = Param("Trade Value (EQ)",5000,1,500000,1); /*Qty will be calculated by TradeValue/Price */
+OrdType =  ParamList("Order Type","M|L",0);
+ProdType =  ParamList("Product Type","I",0);
+val  =  ParamList("Validity","DAY",0);
+IsLive = ParamToggle("Enable Auto Trade", "NO|YES",0); /*Switch between Paper Trade and Live*/
+StgyCode = ParamList("Strategy Code","A1|A2|A3|A4|A5|A6|A7|A8|A9",0); /*Must be 2 charcters only. Alphanumeric, should be unique for each strategy*/
+Qty = IIf(Exch=="NSE_EQ",floor(TradeValue/DayO),NoOfLots);
+DiscQty = 0;
+/*
+The above parameters will work good for drag & drop and chart trading.
+If you are using scanner, than you need to generate certain parameters dynamically.
+For Example:
+If you scan 50 symbols and Put AXISBANK in Trade symbol parameter, 
+every Ticker/Signal will take AXISBANK as trade symbol.
+So you need to modify the variable TrdSym to generate Trade symbol dynamically.
+Example:
+Suppose, you are trading NSE Futures and your Ticker Format is TICKER-I Ex: NIFTY-I
+and the expiry is Dec 17.
+
+Ticker = Name(); //get the ticker name. Exapmle NIFTY-I
+TkrLen = StrLen(Ticker); //get the length of the ticker
+Symbol = StrLeft(Ticker,TkrLen-2);//Remove the -I from the ticker. Example : NIFTY
+ExpiryStr = "17DECFUT"; //Assume the Expiry is Dec17
+
+TrdSym = Symbol +  ExpiryStr; //Combine the symbol & Expirty Str to get Trade Symboml. Example NIFTY17DECFUT
+
+The above code dynamically ouput the trade symbol from Ticker.
+Example:
+NIFTY-I --> NIFTY17DECFUT
+AXISBANK-I --> AXISBANK17DECFUT
+The above is just example, you need to modify as required.
+*/
+
+LmtPrice = LastValue(C,1);/*Returns constant number*/
+TrgPrice = 0;
+Qty = LastValue(Qty,1);
+
+if (LastValue(Buy)) {
+Trans = "BUY";
+cTag = "LONGENTRY";
+Bridge = CreateStaticObject("UpstoxNet.Bridge");/*create object*/
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, Trans, OrdType, Qty, ProdType, LmtPrice, TrgPrice, val, cTag, DiscQty, IsLive, StgyCode); /*Place the order*/
+FilePath = Name() + "_Signals.txt"; /*Log file name*/
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + Trans + "," + NumToStr(LastValue(Qty),1.0) + "," + NumToStr(LastValue(C,1),1.2) + "," + OrderId; /*signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);/*Log signal details for debug and analysis*/}
+
+if (LastValue(Sell)) {
+Trans = "SELL";
+cTag = "LONGEXIT";
+Bridge = CreateStaticObject("UpstoxNet.Bridge");/*create object*/
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, Trans, OrdType, Qty, ProdType, LmtPrice, TrgPrice, val, cTag, DiscQty, IsLive, StgyCode); /*Place the order*/
+FilePath = Name() + "_Signals.txt"; /*Log file name*/
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + Trans + "," + NumToStr(LastValue(Qty),1.0) + "," + NumToStr(LastValue(C,1),1.2) + "," + OrderId; /*signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);/*Log signal details for debug and analysis*/}
+
+if (LastValue(Short)) {
+Trans = "SHORT";
+cTag = "SHORTENTRY";
+Bridge = CreateStaticObject("UpstoxNet.Bridge");/*create object*/
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, Trans, OrdType, Qty, ProdType, LmtPrice, TrgPrice, val, cTag, DiscQty, IsLive, StgyCode); /*Place the order*/
+FilePath = Name() + "_Signals.txt"; /*Log file name*/
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + Trans + "," + NumToStr(LastValue(Qty),1.0) + "," + NumToStr(LastValue(C,1),1.2) + "," + OrderId; /*signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);/*Log signal details for debug and analysis*/}
+
+if (LastValue(Cover)) {
+Trans = "COVER";
+cTag = "SHORTEXIT";
+Bridge = CreateStaticObject("UpstoxNet.Bridge");/*create object*/
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, Trans, OrdType, Qty, ProdType, LmtPrice, TrgPrice, val, cTag, DiscQty, IsLive, StgyCode); /*Place the order*/
+FilePath = Name() + "_Signals.txt"; /*Log file name*/
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + Trans + "," + NumToStr(LastValue(Qty),1.0) + "," + NumToStr(LastValue(C,1),1.2) + "," + OrderId; /*signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);/*Log signal details for debug and analysis*/}
+_SECTION_END();
+
+/*
+Terms of Use
+
+These terms of use (“Terms”) are an agreement between you (“You”, “Your”) and Howutrade Software Solutions LLP (“HowUTrade”, “We”, “Our” or “Us”) with registered 
+office at 2/330, New Middle St, Madukkur North,Thanjavur, Tamil Nadu, India 614903 and govern your use of HowUTrade’s program code (the “Code”) written in VBA or AFL 
+or any other computer programming or scripting language.
+
+By using the code, you are agreeing to these terms. Please read them carefully.
+
+If you do not agree to these terms, you do not have the right to access or use the code.If you do use the code you shall be deemed to confirm your acceptance of the 
+terms.
+
+Using the code does not give you ownership of any intellectual property rights in the code or the content you access.
+
+1.   LICENSE:
+HowUTrade grants to you a limited, non-exclusive, non-transferable license, without right to sub-license, to use the code. HowUTrade does not transfer the title of the 
+code to you.The code provided to you is not a sale.The code is licensed for personal use only, not commercial use.
+
+2.  LIMITATIONS:
+You agree not to, and you will not permit others to:
+license, sell, rent, lease, assign, distribute, transmit, host, outsource, disclose or otherwise commercially exploit the code provided by HowUTrade or make the code 
+available to any third party.
+
+3.  USE RESTRICTIONS:
+You shall use the code in compliance with all applicable laws and not for any unlawful purpose.Without limiting the foregoing, use, display or distribution of the code 
+together with material that is pornographic, racist, vulgar, obscene, defamatory, libelous, abusive, promoting hatred, discriminating or displaying prejudice based on 
+religion, ethnic heritage, race, sexual orientation or age is strictly prohibited.
+
+4.  COPYRIGHT RESTRICTIONS:
+The code provided by HowUTrade contains copyrighted material, trade secrets and other proprietary material. You shall not, and shall not attempt to, modify, reverse 
+engineer, disassemble or decompile nor can you create any derivative works or other works that are based upon or derived from the code in whole or in part.
+
+5. INDEMNIFICATION:
+You will indemnify, hold harmless, and defend HowUTrade, its employees, agents and distributors against any and all claims, proceedings, demand and costs resulting 
+from or in any way connected with your use of the code.
+
+6. REGULATORY APPROVALS:
+You should take necessary regulatory approvals if any, required to use the code for trading or investment in stock markets.For any and all compliance related queries, 
+you can contact your stock broker or trading member.You hereby consent that you are aware of the risk involved in programmatic trading and have sufficient basic 
+programming and coding knowledge required to use the code.
+
+7. CONSENT OF USE OF DATA:
+The code may collect information gathered in any manner as a part of the product support services provided to you if any related to the code and send that to 
+HowUTrade. HowUTrade may use this information to improve our products and services. Your use of the code operates as your consent to these practices.
+
+8. INVESTMENT DISCLAIMER:
+HowUTrade is not a stock broker or trading member,is not an investment advisor and has no access to non-public information about publicly traded companies. HowUTrade 
+is not giving or receiving of financial advice, advice concerning investment decisions or tax or legal advice. HowUTrade merely provide information technology 
+services. Neither HowUTrade nor its employees are licensed investment advisors, tax advisors, nor attorneys. Consult with a licensed investment advisor and a tax 
+advisor to determine the suitability of any investment. You are advised to conduct your own independent research into individual stocks before making a purchase 
+decision.In addition, you are advised that past stock performance is not indicative of future price action and it should not be assumed that future results will be 
+profitable or will equal past performance, real, indicated or implied. You should be aware of the risks involved in stock investments. The code provided by HowUTrade 
+do not provide, imply, or otherwise constitute a guarantee of performance.
+
+9.  GOVERNING LAW:
+This terms of use shall be governed and interpreted by the laws of the Union of India. Only courts in Thanjavur (Tamil Nadu) shall have the jurisdiction for the 
+resolution of any disputes hereunder. You hereby consent to such personal and exclusive jurisdiction.If any provision shall be considered unlawful, void or otherwise 
+unenforceable, then that provision shall be deemed severable from this terms of use and not affect the validity and enforceability of any other provisions.
+
+10.  WARRANTY DISCLAIMER:
+HOWUTRADE HEREBY EXPRESSLY DISCLAIM ANY WARRANTY FOR THE CODE.THE CODE IS PROVIDED “AS IS” WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING, WITHOUT 
+LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.YOU ACCEPTS ANY AND ALL RISK ARISING OUT OF USE OR 
+PERFORMANCE OF THE CODE.
+
+11.  LIMITATION OF LIABILITY:
+HOWUTRADE SHALL NOT BE LIABLE TO YOU, OR ANY OTHER PERSON OR ENTITY CLAIMING THROUGH YOU ANY LOSS OF PROFITS, INCOME, SAVINGS, OR ANY OTHER CONSEQUENTIAL INCIDENTAL, 
+SPECIAL, PUNITIVE, DIRECT OR INDIRECT DAMAGE, WHETHER ARISING IN CONTRACT, TORT, WARRANTY, OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE CODE OR THE USE 
+OR OTHER DEALINGS IN THE CODE. UNDER NO CIRCUMSTANCES SHALL HOWUTRADE AGGREGATE LIABILITY TO YOU,OR OTHER PERSON OR ENTITY CLAIMING THROUGH YOU, EXCEEDS THE FINANCIAL 
+AMOUNT ACTUALLY PAID BY YOU TO HOWUTRADE FOR THE CODE.
+
+Copy of this terms available online at https://howutrade.in/terms-use-code/
+*/

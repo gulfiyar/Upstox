@@ -1,0 +1,18 @@
+#Lines starting with '#' will be assumed as comment and ignored.
+#This can be used to batch download historical data from API server
+#One line for each symbol in the below format.
+#
+#The format should be exactly as below
+#EXCH,TRADE_SYMBOL,INTERVAL,FROM_DATE,TO_DATE 
+#
+#INTERVAL : 1MINUTE | 5MINUTE | 10MINUTE | 30MINUTE | 60MINUTE | 1DAY | 1WEEK | 1MONTH
+#FROM_DATE,TO_DATE : SHOULD BE IN DD-MMM-YYYY FORMAT
+#
+#EXAMPLES BELOW:
+#
+NSE_EQ,ADANIPORTS,1MINUTE,19-Feb-2018,20-Mar-2018
+NSE_EQ,AMBUJACEM,1MINUTE,19-Feb-2018,20-Mar-2018
+NSE_EQ,ASIANPAINT,1MINUTE,19-Feb-2018,20-Mar-2018
+NSE_EQ,AUROPHARMA,1MINUTE,19-Feb-2018,20-Mar-2018
+NSE_EQ,AXISBANK,1MINUTE,19-Feb-2018,20-Mar-2018
+NSE_EQ,BAJAJ-AUTO,1MINUTE,19-Feb-2018,20-Mar-2018

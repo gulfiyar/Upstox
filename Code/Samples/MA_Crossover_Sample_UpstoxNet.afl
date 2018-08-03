@@ -1,0 +1,333 @@
+/*
+Sample MA Crossover System
+
+Coded by Howutrade Software Solutions LLP
+https://howutrade.in
+help@howutrade.in
+*/
+
+_SECTION_BEGIN("Chart Options");
+GfxSetBkMode(0);
+SetChartOptions(0,chartShowArrows|chartShowDates);
+BkColor = ParamColor("Chart Background Color",colorBlack);
+SetChartBkColor( BkColor); 
+SetChartBkGradientFill( BkColor, BkColor);
+UpColor = ParamColor("Up Bar Color",colorLime);
+DnColor = ParamColor("Down Bar Color",colorRed);
+Plot( C, "Close",IIf(C>O,UpColor,DnColor),styleNoLabel|ParamStyle("Chart Style",styleCandle,maskPrice)|styleNoTitle);
+_SECTION_END();
+
+_SECTION_BEGIN("Default Variables");
+Buy=Sell=Short=Cover=0;
+BuyPrice=SellPrice=ShortPrice=CoverPrice=0;
+BuyTgtPrice = BuySLPrice = ShortTgtPrice = ShortSLPrice = 0;
+Ticker = Name();
+TkrLen = StrLen(Ticker);
+Pxw = Status("Pxwidth");
+Pxh = Status("Pxheight");
+BarB = BeginValue(BarIndex());
+BarE = EndValue(BarIndex());
+BarC = BarIndex();
+BarL = LastValue(BarC,1);
+BarT = BarIndex() - Nz(ValueWhen(Day()!= Ref(Day(),-1) ,BarIndex()),0) + 1;
+Ltp = LastValue(C,1); 
+DayO = ValueWhen(BarT==1,O);
+DayH = HHV(H,BarT);  
+DayL = LLV(L,BarT);
+DayC = C;
+Bridge = CreateStaticObject("UpstoxNet.Bridge"); /*Bridge Object*/
+FilePath = Name() + "_Signals.txt"; /*Log File*/
+_SECTION_END();
+
+_SECTION_BEGIN("Custom Functions");
+function ExitCOByTag( Exch, TrdSym, CTag,StgyCode, IsResetSignal, IsAsync) 
+{POrderId = Bridge.GetOrderCTag(Exch, TrdSym, cTag);
+ChildOrders = Bridge.GetChildOrders(POrderId);
+ExitStatus = Bridge.ExitCOBridge(ChildOrders, IsAsync);
+if (IsResetSignal){Reset = Bridge.ResetCOSignals(Exch, TrdSym, StgyCode);}
+return ExitStatus;} 
+
+function ExitOCOByTag( Exch, TrdSym, CTag,StgyCode, IsResetSignal, IsAsync) 
+{POrderId = Bridge.GetOrderCTag(Exch, TrdSym, cTag);
+ChildOrders = Bridge.GetChildOrders(POrderId);
+ExitStatus = Bridge.ExitOCOBridge(ChildOrders, IsAsync);
+if (IsResetSignal) {Reset =  Bridge.ResetOCOSignals(Exch, TrdSym, StgyCode);}
+return ExitStatus;}
+_SECTION_END();
+
+_SECTION_BEGIN("Low Level Graphics");
+Title = "Ticker: " + EncodeColor( colorOrange ) + Name() + 
+EncodeColor( colorWhite ) + " Interval: " + EncodeColor( colorAqua ) + Interval(2) +
+EncodeColor( colorWhite ) + " Time: " + EncodeColor( colorRed ) + Date() +
+EncodeColor( colorWhite ) + " Open: " + EncodeColor( colorBlue ) + NumToStr( O, 1.2 ) +
+EncodeColor( colorWhite ) + " High: " + EncodeColor( colorGreen ) + NumToStr( H, 1.2 ) +
+EncodeColor( colorWhite ) + " Low: " + EncodeColor( colorRed ) + NumToStr( L, 1.2 ) +
+EncodeColor( colorWhite ) + " Close: " + EncodeColor( colorSkyblue ) + NumToStr( C, 1.2 ) +
+EncodeColor( colorWhite ) + " Volume: " + EncodeColor( colorBrown ) + NumToStr( V, 1.0 );
+/*GfxRectangle(pxw/2,1,(pxw/2)-5,pxh);*/
+GfxSelectPen( colorWhite, 1 );
+GfxSelectSolidBrush( colorBlack ); 
+GfxRoundRect( (Pxw/2)-157, Pxh-72,(Pxw/2)+150, Pxh-48, 15, 15 );
+GfxSelectFont( "Georgia", 16, 800, False );
+GfxSetTextColor( colorYellow );
+GfxTextOut( "MA Crossover System", (Pxw/2)-120, Pxh-73 );
+GfxRoundRect( (Pxw/2)-90, Pxh-42,(Pxw/2)+83, Pxh-18, 15, 15 );
+GfxSelectFont( "Cambria", 10, 700, True );
+GfxSetTextColor( colorYellow );
+GfxTextOut( "Coded by HowUTrade", (Pxw/2)-64, Pxh-38 );
+_SECTION_END();
+
+_SECTION_BEGIN("Symbol Details");
+Exch = ParamList("Exchange","NSE_EQ|NSE_FO|MCX_FO",0);
+TrdSym = ParamStr("Trade Symbol","AXISBANK"); 
+NoOfLots = Param("No of Lots to Trade (FUT)",1,1,500,1); 
+TradeValue = Param("Trade Value (EQ)",5000,1,500000,1); 
+TargetPct = Param("Target Percentage",1.5,0.05,100,0.05)/100; 
+StoplossPct = Param("Stoploss Percentage",1.5,0.05,100,0.05)/100; 
+TrailPct = Param("Trail Percentage",0.25,0.05,100,0.05)/100; 
+OrdType =  ParamList("Order Type","M|L",0);
+ProdType =  ParamList("Product Type","I|D",0);
+IsLive = ParamToggle("Enable Auto Trade", "NO|YES",0);
+IsAsync = ParamToggle("Place Order In Background", "NO|YES",0);  
+StgyCode = ParamList("Strategy Code","A1",0); 
+Qty = IIf(Exch=="NSE_EQ",floor(TradeValue/DayO),NoOfLots);
+
+/*Custom Tags*/
+BuyTag = "BUY" + StgyCode;
+ShortTag = "SHORT" + StgyCode;
+SellTag = "SELL" + StgyCode;
+CoverTag = "COVER" + StgyCode;
+_SECTION_END();
+
+_SECTION_BEGIN("Dashboard");
+LotSize = Nz(StaticVarGet(TrdSym+"LOTSIZE"));
+if (LotSize==0){LotSize = Bridge.GetLotSize(Exch,TrdSym);StaticVarSet(TrdSym+"LOTSIZE",LotSize);}
+
+TikSize = Nz(StaticVarGet(TrdSym+"TICKSIZE"));
+if (TikSize==0){TikSize = Bridge.GetTickSize(Exch,TrdSym);StaticVarSet(TrdSym+"TICKSIZE",TikSize);}
+
+ShowDashboard = ParamToggle("Show Dashboard","NO|YES",1);
+if (ShowDashboard) {
+GfxSelectSolidBrush( colorBlack );
+GfxRoundRect(3, Pxh-310, 270, Pxh-20, 15, 15 );
+GfxSelectFont( "Cambria", 12, 400, False );
+GfxSetTextColor( colorWhite );
+GfxTextOut( "Ticker", 5, Pxh-300 );
+GfxTextOut( "Exch", 5, Pxh-280 );
+GfxTextOut( "Trade Symbol", 5, Pxh-260 );
+GfxTextOut( "Qty/Lot", 5,Pxh-240 );
+GfxTextOut( "", 5, Pxh-220 );
+GfxTextOut( "Mode", 5, Pxh-200 );
+GfxTextOut( "Long Trades", 5, Pxh-180 );
+GfxTextOut( "Short Trades", 5, Pxh-160 );
+GfxTextOut( "Bought Price", 5, Pxh-140 );
+GfxTextOut( "Sold Price", 5, Pxh-120 );
+GfxTextOut( "Bought Qty", 5, Pxh-100 );
+GfxTextOut( "Sold Qty", 5, Pxh-80 );
+GfxTextOut( "Net Qty", 5, Pxh-60 );
+GfxTextOut( "MTM", 5, Pxh-40 );
+
+Source = "AMIBRIDGE";
+Mode = WriteIf(IsLive,"Live","Paper");
+LongTrades = Bridge.GetLongTradesBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+ShortTrades = Bridge.GetShortTradesBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+BoughtPrice = Bridge.GetAvgBoughtPriceBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+SoldPrice = Bridge.GetAvgSoldPriceBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+BoughtQty = Bridge.GetBoughtQtyBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+SoldQty = Bridge.GetSoldQtyBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+NetQty = Bridge.GetNetQtyBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+MTM = Bridge.GetMTMBridge(Exch,TrdSym,StgyCode,Source,IsLive);
+TotalMtm = Bridge.GetTotalMtmBridge(StgyCode,Source,IsLive);
+
+GfxSetTextColor( colorBlue );
+GfxTextOut( ": "+Ticker, 110, Pxh-300 );
+GfxTextOut( ": "+Exch, 110, Pxh-280 );
+GfxTextOut( ": "+TrdSym, 110, Pxh-260 );
+GfxTextOut( ": "+Qty+" (LotSize:"+LotSize+")", 110, Pxh-240 );
+GfxTextOut( "", 110, Pxh-220 );
+GfxTextOut( ": "+Mode, 110, Pxh-200 );
+GfxTextOut( ": "+LongTrades, 110, Pxh-180 );
+GfxTextOut( ": "+ShortTrades, 110, Pxh-160 );
+GfxTextOut( ": "+BoughtPrice, 110, Pxh-140 );
+GfxTextOut( ": "+SoldPrice, 110, Pxh-120 );
+GfxTextOut( ": "+BoughtQty, 110, Pxh-100 );
+GfxTextOut( ": "+SoldQty, 110, Pxh-80 );
+GfxTextOut( ": "+NetQty, 110, Pxh-60 );
+GfxTextOut( ": "+MTM, 110, Pxh-40 );}
+_SECTION_END();
+
+_SECTION_BEGIN("System Variables");
+TrdBeginTime = ParamTime("Trade Begin Time","09:20:00",0);
+TrdEndTime = ParamTime("Trade End Time","14:50:00",0);
+SqOffTime = ParamTime("Square Off Time","15:15:00",0);
+IsTrdTime = TimeNum()>=TrdBeginTime AND TimeNum()<=TrdEndTime;
+IsSqOffTime = TimeNum()>=SqOffTime;
+
+MaxEntry = Param("Maximum Entry (Long and Short)",2,1,100,1);
+MaxPositions = Param("Maximum Positions",10,1,500,1);
+ResetMaxPositions  = ParamToggle("Reset Positions", "NO|YES",0);  
+
+MaxProfit = Param("Maximum Profit",50000,1,500000,1);
+MaxProfitAll = Param("Maximum Profit All",50000,1,500000,1);
+MaxLoss = Param("Maximum Loss",-50000,-500000,-1,1);
+MaxLossAll  = Param("Maximum Loss All",-50000,-500000,-1,1);
+_SECTION_END();
+
+_SECTION_BEGIN("Trading System");
+MA1 = MA(C, Param("MA Period1",15,1,500,1));
+MA2 = MA(C, Param("MA Period2",27,1,500,1));
+Plot(MA1, "MA1", colorLime, styleLine);
+Plot(MA2, "MA2", colorRed, styleLine);
+
+Buy = Cross(MA1, MA2) AND IsTrdTime;
+Short = Cross(MA2, MA1) AND IsTrdTime;
+Buy = ExRem(Buy,Short);
+Short = ExRem(Short,Buy);
+Buy = Ref(Buy,-1);
+Short = Ref(Short,-1);
+
+BuyPrice = ValueWhen(Buy,C);
+ShortPrice = ValueWhen(Short,C);
+BuyTgtPrice = BuyPrice + (BuyPrice*TargetPct);
+BuySLPrice = BuyPrice - (BuyPrice*StoplossPct);
+ShortTgtPrice = ShortPrice - (ShortPrice*TargetPct);
+ShortSLPrice = ShortPrice + (ShortPrice*StoplossPct);
+
+Sell = (H >= BuyTgtPrice OR L <= BuySLPrice OR IsSqOffTime OR Short) AND Buy ==0;
+Cover = (H >= ShortSLPrice OR L <= ShortTgtPrice OR IsSqOffTime OR Buy) AND Short ==0;
+Sell = IIf(Cum(Buy)==0,0,ExRem(Sell,Buy));
+Cover = IIf(Cum(Short)==0,0,ExRem(Cover,Short));
+
+/*Plot Signals on Chart*/
+PlotArrows = ParamToggle("Plot Arrows For Signals","NO|YES",1);
+if (PlotArrows) {
+PlotShapes(IIf(Buy, shapeHollowUpArrow, shapeNone),colorGreen, 0,L, Offset=-30); 
+PlotShapes(IIf(Cover, shapeHollowStar, shapeNone),colorDarkGreen, 0,L, Offset=-50);
+PlotShapes(IIf(Short, shapeHollowDownArrow, shapeNone),colorRed, 0,H, Offset=-30);
+PlotShapes(IIf(Sell, shapeHollowStar, shapeNone),colorDarkRed, 0,H, Offset=50);}
+_SECTION_END();
+
+_SECTION_BEGIN("Order Placement");
+/*Convert array to number before passing*/
+LmtPrice = LastValue(C,1);
+TrgPrice = 0;
+Qty = LastValue(Qty,1);
+DiscQty = 0;
+Validity = "DAY";
+
+/*
+For OCO/CO Orders
+SqOffValue 
+StoplossValue  
+TrailTicks 
+StoplossPrice
+*/
+
+if (LastValue(Buy)) {
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, "BUY", OrdType, Qty, ProdType, LmtPrice, TrgPrice, Validity, BuyTag, DiscQty, IsLive, StgyCode, IsAsync); 
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + "BUY"  + "," + NumToStr(Qty,1.0) + "," + NumToStr(LmtPrice,1.2) + "," + OrderId; /*Log signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);
+} 
+
+if (LastValue(Sell)) {
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, "SELL", OrdType, Qty, ProdType, LmtPrice, TrgPrice, Validity, SellTag, DiscQty, IsLive, StgyCode, IsAsync); 
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + "SELL"  + "," + NumToStr(Qty,1.0) + "," + NumToStr(LmtPrice,1.2) + "," + OrderId; /*Log signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);
+} 
+
+if (LastValue(Short)) {
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, "SHORT", OrdType, Qty, ProdType, LmtPrice, TrgPrice, Validity, ShortTag, DiscQty, IsLive, StgyCode, IsAsync); 
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + "SHORT"  + "," + NumToStr(Qty,1.0) + "," + NumToStr(LmtPrice,1.2) + "," + OrderId; /*Log signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);
+} 
+
+if (LastValue(Cover)) {
+OrderId = Bridge.PlaceSimpleOrderBridge(Exch, TrdSym, "COVER", OrdType, Qty, ProdType, LmtPrice, TrgPrice, Validity, CoverTag, DiscQty, IsLive, StgyCode, IsAsync); 
+StrLine = Now(0) + "," + Exch + "," + TrdSym + "," + "COVER"  + "," + NumToStr(Qty,1.0) + "," + NumToStr(LmtPrice,1.2) + "," + OrderId; /*Log signal details*/
+Bridge.WriteTextFile(FilePath, StrLine, True);
+} 
+_SECTION_END();
+
+_SECTION_BEGIN("Developer");
+TestConnection = ParamTrigger("Test Connection","PRESS");
+if (TestConnection) {BridgeStatus = Bridge.TestConnection();if (BridgeStatus){PopupWindow("Hey Buddy..! I'm waiting..!","Test Connection");} else {PopupWindow("UserNotoggedIn Or Invalid User","Test Connection");}}
+
+GetClientId = ParamTrigger("Get ClientId","PRESS");
+if (GetClientId){ClientId = Bridge.GetConnectedClient();PopupWindow("ClientId: " + ClientId,"Get ClientId");}
+
+TestOrder = ParamTrigger("Test Order","PRESS");
+if (TestOrder){Bridge.ResetSimpleOrderSignals("NSE_EQ", "ACC", "ZZ");OrderId = Bridge.PlaceSimpleOrderBridge("NSE_EQ", "ACC", "BUY", "L", 1, "I", 10.55, 0,"DAY", "LONG", 0, True, "ZZ");PopupWindow("OrderId: " + OrderId,"Test Order");}
+_SECTION_END();
+
+/*
+Terms of Use
+
+These terms of use (“Terms”) are an agreement between you (“You”, “Your”) and Howutrade Software Solutions LLP (“HowUTrade”, “We”, “Our” or “Us”) with registered 
+office at 2/330, New Middle St, Madukkur North,Thanjavur, Tamil Nadu, India 614903 and govern your use of HowUTrade’s program code (the “Code”) written in VBA or AFL 
+or any other computer programming or scripting language.
+
+By using the code, you are agreeing to these terms. Please read them carefully.
+
+If you do not agree to these terms, you do not have the right to access or use the code.If you do use the code you shall be deemed to confirm your acceptance of the 
+terms.
+
+Using the code does not give you ownership of any intellectual property rights in the code or the content you access.
+
+1.   LICENSE:
+HowUTrade grants to you a limited, non-exclusive, non-transferable license, without right to sub-license, to use the code. HowUTrade does not transfer the title of the 
+code to you.The code provided to you is not a sale.The code is licensed for personal use only, not commercial use.
+
+2.  LIMITATIONS:
+You agree not to, and you will not permit others to:
+license, sell, rent, lease, assign, distribute, transmit, host, outsource, disclose or otherwise commercially exploit the code provided by HowUTrade or make the code 
+available to any third party.
+
+3.  USE RESTRICTIONS:
+You shall use the code in compliance with all applicable laws and not for any unlawful purpose.Without limiting the foregoing, use, display or distribution of the code 
+together with material that is pornographic, racist, vulgar, obscene, defamatory, libelous, abusive, promoting hatred, discriminating or displaying prejudice based on 
+religion, ethnic heritage, race, sexual orientation or age is strictly prohibited.
+
+4.  COPYRIGHT RESTRICTIONS:
+The code provided by HowUTrade contains copyrighted material, trade secrets and other proprietary material. You shall not, and shall not attempt to, modify, reverse 
+engineer, disassemble or decompile nor can you create any derivative works or other works that are based upon or derived from the code in whole or in part.
+
+5. INDEMNIFICATION:
+You will indemnify, hold harmless, and defend HowUTrade, its employees, agents and distributors against any and all claims, proceedings, demand and costs resulting 
+from or in any way connected with your use of the code.
+
+6. REGULATORY APPROVALS:
+You should take necessary regulatory approvals if any, required to use the code for trading or investment in stock markets.For any and all compliance related queries, 
+you can contact your stock broker or trading member.You hereby consent that you are aware of the risk involved in programmatic trading and have sufficient basic 
+programming and coding knowledge required to use the code.
+
+7. CONSENT OF USE OF DATA:
+The code may collect information gathered in any manner as a part of the product support services provided to you if any related to the code and send that to 
+HowUTrade. HowUTrade may use this information to improve our products and services. Your use of the code operates as your consent to these practices.
+
+8. INVESTMENT DISCLAIMER:
+HowUTrade is not a stock broker or trading member,is not an investment advisor and has no access to non-public information about publicly traded companies. HowUTrade 
+is not giving or receiving of financial advice, advice concerning investment decisions or tax or legal advice. HowUTrade merely provide information technology 
+services. Neither HowUTrade nor its employees are licensed investment advisors, tax advisors, nor attorneys. Consult with a licensed investment advisor and a tax 
+advisor to determine the suitability of any investment. You are advised to conduct your own independent research into individual stocks before making a purchase 
+decision.In addition, you are advised that past stock performance is not indicative of future price action and it should not be assumed that future results will be 
+profitable or will equal past performance, real, indicated or implied. You should be aware of the risks involved in stock investments. The code provided by HowUTrade 
+do not provide, imply, or otherwise constitute a guarantee of performance.
+
+9.  GOVERNING LAW:
+This terms of use shall be governed and interpreted by the laws of the Union of India. Only courts in Thanjavur (Tamil Nadu) shall have the jurisdiction for the 
+resolution of any disputes hereunder. You hereby consent to such personal and exclusive jurisdiction.If any provision shall be considered unlawful, void or otherwise 
+unenforceable, then that provision shall be deemed severable from this terms of use and not affect the validity and enforceability of any other provisions.
+
+10.  WARRANTY DISCLAIMER:
+HOWUTRADE HEREBY EXPRESSLY DISCLAIM ANY WARRANTY FOR THE CODE.THE CODE IS PROVIDED “AS IS” WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING, WITHOUT 
+LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.YOU ACCEPTS ANY AND ALL RISK ARISING OUT OF USE OR 
+PERFORMANCE OF THE CODE.
+
+11.  LIMITATION OF LIABILITY:
+HOWUTRADE SHALL NOT BE LIABLE TO YOU, OR ANY OTHER PERSON OR ENTITY CLAIMING THROUGH YOU ANY LOSS OF PROFITS, INCOME, SAVINGS, OR ANY OTHER CONSEQUENTIAL INCIDENTAL, 
+SPECIAL, PUNITIVE, DIRECT OR INDIRECT DAMAGE, WHETHER ARISING IN CONTRACT, TORT, WARRANTY, OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE CODE OR THE USE 
+OR OTHER DEALINGS IN THE CODE. UNDER NO CIRCUMSTANCES SHALL HOWUTRADE AGGREGATE LIABILITY TO YOU,OR OTHER PERSON OR ENTITY CLAIMING THROUGH YOU, EXCEEDS THE FINANCIAL 
+AMOUNT ACTUALLY PAID BY YOU TO HOWUTRADE FOR THE CODE.
+
+Copy of this terms available online at https://howutrade.in/terms-use-code/
+*/
